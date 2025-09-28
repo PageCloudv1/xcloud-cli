@@ -1,185 +1,296 @@
-name: 🔧 xCloud CLI - Build & Test
+name: CI/CD Pipeline - Go CLI
 
 on:
   push:
     branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   release:
     types: [published]
 
 env:
-  PYTHON_VERSION: '3.11'
+  GO_VERSION: '1.21'
+  APP_NAME: 'xcloud-cli'
 
 jobs:
+  lint-and-format:
+    name: 🔍 Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 📦 Download dependencies
+        run: go mod download
+
+      - name: 🔍 Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: 🧹 Check formatting
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "❌ Code is not formatted. Please run 'gofmt -s -w .'"
+            gofmt -s -l .
+            exit 1
+          fi
+          echo "✅ Code is properly formatted"
+
+      - name: 🔧 Check modules
+        run: |
+          go mod tidy
+          if ! git diff --quiet go.mod go.sum; then
+            echo "❌ go.mod or go.sum is not tidy"
+            git diff go.mod go.sum
+            exit 1
+          fi
+
   test:
+    name: 🧪 Test Go ${{ matrix.go-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.9', '3.10', '3.11', '3.12']
-    
+        os: [ubuntu-latest, windows-latest]
+        go-version: ['1.20', '1.21', '1.22']
+
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: 🐹 Setup Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
 
-    - name: 📦 Cache pip dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/pip
-          ~/.local/share/virtualenvs
-        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-${{ matrix.python-version }}-
-          ${{ runner.os }}-pip-
+      - name: 📦 Download dependencies
+        run: go mod download
 
-    - name: 📦 Install dependencies
-      run: |
-        python -m pip install --upgrade pip setuptools wheel
-        pip install pytest pytest-cov pytest-mock
-        pip install black flake8 mypy
-        # Install CLI in development mode
-        pip install -e .
+      - name: 🧪 Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
 
-    - name: 🧹 Code formatting check
-      run: |
-        black --check --diff src/ tests/
-        
-    - name: 🔍 Lint with flake8
-      run: |
-        flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 src/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+      - name: 📊 Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.21'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-umbrella
 
-    - name: 🔍 Type check with mypy
-      run: |
-        mypy src/ --ignore-missing-imports
-
-    - name: 🧪 Run unit tests
-      run: |
-        pytest tests/ -v --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing
-
-    - name: 🔧 Test CLI installation and basic commands
-      run: |
-        # Test CLI is properly installed
-        python -m src.cli.main --help
-        python -m src.cli.main version || echo "Version command not implemented yet"
-        
-    - name: 📊 Upload coverage to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        flags: unittests
-        name: xcloud-cli-coverage
-
-  integration-test:
-    needs: test
+  build:
+    name: 🔨 Build Binaries
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    
+    needs: [lint-and-format, test]
+    strategy:
+      matrix:
+        goos: [linux, windows]
+        goarch: [amd64, arm64]
+
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-    - name: 📦 Install CLI
-      run: |
-        pip install -e .
+      - name: 📦 Download dependencies
+        run: go mod download
 
-    - name: 🧪 Integration tests
-      run: |
-        # Create test directory
-        mkdir -p /tmp/xcloud-integration-test
-        cd /tmp/xcloud-integration-test
-        
-        # Test help commands work
-        python -m src.cli.main --help
-        
-        # TODO: Add more integration tests when templates are ready
-        echo "✅ Basic integration tests passed"
+      - name: 🔨 Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            EXT=".exe"
+          fi
+          
+          BINARY_NAME="${APP_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+          
+          echo "🔨 Building ${BINARY_NAME}"
+          go build -ldflags="-s -w" -o "dist/${BINARY_NAME}" ./cmd/xcloud
+          
+          # Verify binary
+          file "dist/${BINARY_NAME}" || true
+          ls -la "dist/${BINARY_NAME}"
+
+      - name: 📤 Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+          retention-days: 7
 
   security:
+    name: 🔒 Security Scan
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: [lint-and-format]
     
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-      
-    - name: 🔒 Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-    - name: 📊 Upload Trivy scan results
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-    - name: 🔍 CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        languages: python
+      - name: 🔒 Run Gosec Security Scanner
+        uses: securecodewarrior/github-action-gosec@master
+        with:
+          args: '-fmt sarif -out gosec.sarif ./...'
 
-  build-and-publish:
-    needs: [test, integration-test, security]
+      - name: 📤 Upload SARIF file
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: gosec.sarif
+
+      - name: 🛡️ Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: 📤 Upload Trivy scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  release:
+    name: 🚀 Release
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: [build, security]
+    if: github.event_name == 'release'
     
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
+      - name: 📦 Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ./artifacts
 
-    - name: 📦 Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build twine
+      - name: 📋 List artifacts
+        run: |
+          echo "📋 Available artifacts:"
+          find ./artifacts -type f -name "*" | sort
 
-    - name: 🏗️ Build package
-      run: |
-        python -m build
+      - name: 📦 Create release archives
+        run: |
+          mkdir -p release
+          
+          # Create archives for each platform
+          for os_arch in linux-amd64 linux-arm64 windows-amd64 windows-arm64; do
+            if [ -d "./artifacts/binaries-${os_arch}" ]; then
+              cd "./artifacts/binaries-${os_arch}"
+              
+              if [[ "${os_arch}" == *"windows"* ]]; then
+                zip -r "../../release/${APP_NAME}-${os_arch}.zip" *
+              else
+                tar -czf "../../release/${APP_NAME}-${os_arch}.tar.gz" *
+              fi
+              
+              cd ../..
+              echo "✅ Created archive for ${os_arch}"
+            else
+              echo "⚠️  No artifacts found for ${os_arch}"
+            fi
+          done
 
-    - name: 🧪 Test built package
-      run: |
-        # Install from built wheel and test
-        pip install dist/*.whl
-        xcloud --version || python -m xcloud.cli.main --version
+      - name: 📤 Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release/*.zip
+            release/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 🚀 Publish to PyPI
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      run: |
-        twine check dist/*
-        twine upload dist/*
+  benchmark:
+    name: ⚡ Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-    - name: 📦 Create GitHub Release Assets
-      uses: softprops/action-gh-release@v1
-      with:
-        files: dist/*
-        generate_release_notes: true
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-    - name: 📢 Notify success
-      if: success()
-      run: |
-        echo "🎉 xCloud CLI ${{ github.ref_name }} published successfully!"
+      - name: 📦 Download dependencies
+        run: go mod download
+
+      - name: ⚡ Run benchmarks
+        run: |
+          echo "⚡ Running performance benchmarks..."
+          go test -bench=. -benchmem -count=3 -timeout=10m ./... > benchmark_results.txt 2>&1 || true
+          
+          if [ -s benchmark_results.txt ]; then
+            echo "📊 Benchmark Results:"
+            cat benchmark_results.txt
+          else
+            echo "ℹ️  No benchmarks found"
+          fi
+
+      - name: 📤 Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: benchmark_results.txt
+          retention-days: 30
+
+  notify:
+    name: 📢 Notification
+    runs-on: ubuntu-latest
+    needs: [lint-and-format, test, build, security]
+    if: always()
+    
+    steps:
+      - name: 📢 Workflow Summary
+        run: |
+          echo "## 🎯 xCloud CLI - Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Job Results:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔍 Lint & Format: ${{ needs.lint-and-format.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🧪 Tests: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY  
+          echo "- 🔨 Build: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔒 Security: ${{ needs.security.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Targets:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐧 Linux (amd64, arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🪟 Windows (amd64, arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Metrics:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔤 Go Version: ${{ env.GO_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 📅 Build Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
