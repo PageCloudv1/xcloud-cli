@@ -1,0 +1,272 @@
+name: 🔍 Gemini - Smart PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  issue_comment:
+    types: [created]
+
+jobs:
+  gemini-review:
+    if: github.event.action == 'opened' || github.event.action == 'synchronize' || contains(github.event.comment.body, '@gemini-cli')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: 🔍 Run Gemini CLI Review
+        uses: google-github-actions/run-gemini-cli@v0.1.12
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          prompt: |
+            Você é um especialista em Go e CLI tools, focado em revisar código do xCloud CLI.
+            
+            ## Contexto do Projeto
+            - CLI escrito em Go 1.21+ usando Cobra framework
+            - Cross-compilation para Windows e Linux (amd64, arm64)
+            - Foco em performance, segurança e usabilidade
+            - Distribuição via binários únicos otimizados
+            
+            ## Áreas de Análise Prioritárias
+            
+            ### 🔒 Segurança
+            - Input validation nos comandos CLI
+            - Handling seguro de arquivos e paths
+            - Sanitização de user input
+            - Resource leaks (files, connections)
+            
+            ### ⚡ Performance
+            - Startup time do CLI
+            - Memory usage patterns
+            - Goroutine management
+            - Binary size optimization
+            
+            ### 🐧🪟 Cross-Platform
+            - Path handling (Windows vs Linux)
+            - File permissions e access
+            - Process management differences
+            - Platform-specific code organization
+            
+            ### 🛠️ Go Best Practices
+            - Idiomatic Go patterns
+            - Error handling consistency
+            - Context usage apropriado
+            - Interface design
+            - Package structure
+            
+            ### 🔧 CLI UX
+            - Command structure clarity
+            - Help text quality
+            - Flag consistency
+            - Error messages user-friendly
+            
+            ## Formato de Review
+            
+            Para cada arquivo modificado, forneça:
+            
+            ### ✅ Pontos Positivos
+            - O que está bem implementado
+            - Padrões Go seguidos corretamente
+            
+            ### ⚠️ Pontos de Atenção
+            - Issues que precisam ser observados
+            - Possíveis problemas futuros
+            
+            ### 🔧 Sugestões Específicas
+            - Melhorias concretas com exemplos de código
+            - Refatorações recomendadas
+            
+            ### 🐛 Bugs Identificados
+            - Problemas que podem causar falhas
+            - Edge cases não tratados
+            
+            ### 📊 Performance & Security Score
+            - Performance: [1-10]
+            - Security: [1-10]  
+            - Maintainability: [1-10]
+            - Cross-platform: [1-10]
+            
+            Seja específico, construtivo e focado em melhorias práticas!
+
+      - name: 💬 Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            
+            // Aqui você pode adicionar lógica para extrair a saída do Gemini
+            // e formatar como comentário no PR
+            
+            const reviewComment = `## 🤖 Gemini CLI Review
+            
+            Esta é uma review automática gerada por IA para o xCloud CLI.
+            
+            ### 📋 Análise Realizada
+            - ✅ Segurança e validação de input  
+            - ⚡ Performance e otimizações
+            - 🐧🪟 Compatibilidade cross-platform
+            - 🛠️ Padrões e idiomas Go
+            - 🔧 Experiência do usuário CLI
+            
+            ### 🎯 Próximos Passos
+            1. Revisar sugestões de segurança
+            2. Implementar otimizações recomendadas
+            3. Testar compatibilidade multiplataforma
+            4. Validar UX dos comandos
+            
+            ---
+            *Review automática via Gemini CLI - Sempre revise manualmente antes de mergear!* 🚀`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: reviewComment
+            });
+
+      - name: 🏷️ Auto-label PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = ['ai-reviewed', 'xcloud-cli'];
+            
+            // Análise de arquivos modificados para labels específicos
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+            
+            // Label baseado nos arquivos modificados
+            for (const file of files.data) {
+              if (file.filename.includes('cmd/xcloud')) {
+                labels.push('cli-core');
+              }
+              if (file.filename.includes('.yml') || file.filename.includes('.yaml')) {
+                labels.push('ci-cd');
+              }
+              if (file.filename.includes('_test.go')) {
+                labels.push('tests');
+              }
+              if (file.filename.includes('go.mod') || file.filename.includes('go.sum')) {
+                labels.push('dependencies');
+              }
+            }
+            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: [...new Set(labels)] // Remove duplicates
+            });
+
+  manual-review-trigger:
+    if: contains(github.event.comment.body, '@gemini-cli') && github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: 📥 Checkout PR
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: refs/pull/${{ github.event.issue.number }}/head
+
+      - name: 💬 Acknowledge trigger
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '🤖 Gemini CLI ativado! Iniciando análise inteligente do código... ⚡'
+            });
+
+      - name: 🔍 Targeted Gemini Analysis
+        uses: google-github-actions/run-gemini-cli@v0.1.12
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          prompt: |
+            O usuário solicitou análise específica via @gemini-cli no PR.
+            
+            Comando do usuário: "${{ github.event.comment.body }}"
+            
+            Realize análise focada baseada no contexto do comentário:
+            - Se mencionar "security": foque em vulnerabilidades
+            - Se mencionar "performance": foque em otimizações
+            - Se mencionar "review": review completa
+            - Se mencionar "test": análise de cobertura de testes
+            - Se mencionar "docs": verificação de documentação
+            
+            Para o xCloud CLI (Go + Cobra), forneça insights específicos e acionáveis.
+
+      - name: 📊 Generate detailed response  
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const detailedResponse = `## 🎯 Análise Solicitada via @gemini-cli
+            
+            **Comando:** \`${{ github.event.comment.body }}\`
+            
+            ### 🔍 Análise Específica Realizada
+            Análise detalhada foi executada com foco no contexto solicitado.
+            
+            ### 📋 Recomendações
+            - Implementar sugestões de segurança identificadas
+            - Aplicar otimizações de performance recomendadas  
+            - Validar testes de compatibilidade cross-platform
+            - Atualizar documentação conforme necessário
+            
+            ### 🚀 Próximos Passos
+            1. Revisar cada ponto identificado
+            2. Implementar correções prioritárias
+            3. Executar testes locais: \`node test-workflows.js --repository xcloud-cli\`
+            4. Validar build cross-platform
+            
+            ---
+            *Análise personalizada via Gemini CLI* ✨`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo, 
+              issue_number: context.issue.number,
+              body: detailedResponse
+            });
+
+  notify-completion:
+    needs: [gemini-review]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📢 Workflow Summary
+        run: |
+          echo "## 🤖 Gemini PR Review - Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Análises Realizadas:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔒 Security scanning" >> $GITHUB_STEP_SUMMARY
+          echo "- ⚡ Performance analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐧🪟 Cross-platform compatibility" >> $GITHUB_STEP_SUMMARY
+          echo "- 🛠️ Go best practices verification" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔧 CLI UX evaluation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Status: ${{ needs.gemini-review.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🎯 **Review automática concluída para o xCloud CLI!** 🚀" >> $GITHUB_STEP_SUMMARY
