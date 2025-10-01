@@ -1,0 +1,23 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "⚡ xcloud-cli"
+    }
+  ],
+  "settings": {
+    "go.useLanguageServer": true,
+    "go.formatTool": "goimports",
+    "editor.formatOnSave": true,
+    "files.exclude": {
+      "**/*.exe": true,
+      "**/go.sum": false
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "golang.go",
+      "ms-azuretools.vscode-docker"
+    ]
+  }
+}
