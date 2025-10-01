@@ -37,6 +37,58 @@ A xCloud Platform é composta por um conjunto de repositórios projetados para t
 
 ---
 
+## 🤖 Automação e IA
+
+O xCloud CLI possui um sistema de automação completo com suporte a IA para facilitar o desenvolvimento:
+
+### 🔄 Workflows Disponíveis
+
+#### Auto Refactor Issues
+- **Trigger**: Quando uma issue é criada ou reaberta
+- **Ações**: 
+  - Auto-atribuição ao criador
+  - Aplicação automática de labels
+  - Comentário de confirmação
+  - Notificação do @Copilot
+
+#### Gemini Review
+- **Trigger**: Comentários com comandos `/gemini`
+- **Comandos Suportados**:
+  - `/gemini review` - Análise completa do repositório
+  - `/gemini analyze` - Análise detalhada de código
+  - `/gemini suggest` - Sugestões de melhorias
+  - `/gemini validate` - Validação de configurações
+- **Ações**: 
+  - Análise de código e testes
+  - Validação de build
+  - Relatório detalhado com métricas
+  - Sugestões de otimização
+
+#### CI/CD Pipeline
+- **Lint**: Verificação de formatação e estilo
+- **Test**: Testes automatizados com coverage
+- **Build**: Compilação e validação
+- **Quality Gate**: Validação geral de qualidade
+
+#### Release Automation
+- **Trigger**: Tags de versão (v*.*.*)
+- **Ações**: Build multi-plataforma e publicação de releases
+
+### 📚 Documentação de Automação
+
+- **[AUTOMATION_VALIDATION.md](.github/AUTOMATION_VALIDATION.md)** - Guia completo de validação
+- **[app-permissions.md](cmd/app-permissions.md)** - Configuração do GitHub App
+- **[GEMINI.md](GEMINI.md)** - Contexto para integração com IA
+
+### 🚀 Como Usar
+
+1. **Para análise automática**: Crie uma issue e ela será automaticamente processada
+2. **Para review com IA**: Comente `/gemini review` em qualquer issue ou PR
+3. **Para CI/CD**: Faça push para main/develop e o pipeline executará automaticamente
+4. **Para releases**: Crie uma tag de versão (ex: `v1.0.0`)
+
+---
+
 ## 🤝 Como Contribuir
 
 Contribuições são bem-vindas! Para começar, leia nosso **[Guia de Contribuição](CONTRIBUTING.md)** e siga nosso **[Código de Conduta](CODE_OF_CONDUCT.md)**.
