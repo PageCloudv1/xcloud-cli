@@ -1,0 +1,151 @@
+name: '📋 Issue Management'
+
+on:
+  issues:
+    types: [opened, closed, reopened, labeled, unlabeled]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: '${{ github.workflow }}-issue-${{ github.event.issue.number }}'
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: 'bash'
+
+jobs:
+  manage-issue:
+    name: '📋 Gerenciar Issue'
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 5
+    permissions:
+      contents: 'read'
+      issues: 'write'
+      pull-requests: 'read'
+    
+    steps:
+      - name: 'Generate GitHub App Token'
+        id: 'generate_token'
+        uses: 'actions/create-github-app-token@v1'
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_PRIVATE_KEY }}
+          owner: 'PageCloudv1'
+          repositories: 'xcloud-cli'
+
+      - name: '🏷️ Auto-Triage Issue'
+        if: github.event.action == 'opened'
+        uses: 'actions/github-script@v7'
+        with:
+          github-token: '${{ steps.generate_token.outputs.token }}'
+          script: |
+            const { title, body } = context.payload.issue;
+            const issueText = `${title} ${body}`.toLowerCase();
+            
+            let labels = [];
+            
+            // Detectar tipo de issue
+            if (issueText.includes('bug') || issueText.includes('erro') || issueText.includes('falha')) {
+              labels.push('bug');
+            } else if (issueText.includes('feature') || issueText.includes('enhancement') || issueText.includes('nova')) {
+              labels.push('enhancement');
+            } else if (issueText.includes('doc') || issueText.includes('documentação')) {
+              labels.push('documentation');
+            } else if (issueText.includes('workflow') || issueText.includes('ci') || issueText.includes('cd')) {
+              labels.push('workflow');
+            }
+            
+            // Detectar prioridade
+            if (issueText.includes('urgente') || issueText.includes('crítico') || issueText.includes('high')) {
+              labels.push('priority/high');
+            } else if (issueText.includes('médio') || issueText.includes('medium')) {
+              labels.push('priority/medium');
+            } else {
+              labels.push('priority/low');
+            }
+            
+            // Detectar se é para iniciantes
+            if (issueText.includes('good first issue') || issueText.includes('iniciante')) {
+              labels.push('good first issue');
+            }
+            
+            // Aplicar labels se houver
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labels
+              });
+              
+              console.log(`Labels aplicadas: ${labels.join(', ')}`);
+            }
+
+      - name: '🎯 xCloud CLI Specific Triage'
+        if: github.event.action == 'opened'
+        uses: 'actions/github-script@v7'
+        with:
+          github-token: '${{ steps.generate_token.outputs.token }}'
+          script: |
+            const { title, body } = context.payload.issue;
+            const issueText = `${title} ${body}`.toLowerCase();
+            
+            let cliLabels = [];
+            
+            // Detectar área específica do CLI
+            if (issueText.includes('deploy') || issueText.includes('deployment')) {
+              cliLabels.push('area/deploy');
+            }
+            if (issueText.includes('config') || issueText.includes('configuração')) {
+              cliLabels.push('area/config');
+            }
+            if (issueText.includes('auth') || issueText.includes('autenticação')) {
+              cliLabels.push('area/auth');
+            }
+            if (issueText.includes('logs') || issueText.includes('logging')) {
+              cliLabels.push('area/logs');
+            }
+            
+            // Adicionar label genérico do CLI
+            cliLabels.push('xcloud-cli');
+            
+            // Aplicar labels específicas do CLI
+            if (cliLabels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: cliLabels
+              });
+            }
+
+      - name: '✅ Issue Closed Notification'
+        if: github.event.action == 'closed'
+        uses: 'actions/github-script@v7'
+        with:
+          github-token: '${{ steps.generate_token.outputs.token }}'
+          script: |
+            const comment = `## ✅ Issue Finalizada
+            
+            🎉 Esta issue foi marcada como concluída!
+            
+            ### 📊 Estatísticas
+            - **Aberta em**: ${new Date(context.payload.issue.created_at).toLocaleDateString('pt-BR')}
+            - **Fechada em**: ${new Date().toLocaleDateString('pt-BR')}
+            - **Assignee**: ${context.payload.issue.assignee?.login || 'Não atribuída'}
+            
+            ### 🚀 Próximos Passos
+            - Verificar se mudanças foram deployadas
+            - Documentar soluções para referência futura
+            - Considerar criar issues relacionadas se necessário
+            
+            ---
+            🤖 *Notificação automática • xCloud CLI Bot*`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });

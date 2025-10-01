@@ -1,0 +1,182 @@
+name: '🔀 Gemini Dispatch'
+
+on:
+  pull_request_review_comment:
+    types:
+      - 'created'
+  pull_request_review:
+    types:
+      - 'submitted'  
+  pull_request:
+    types:
+      - 'opened'
+  issues:
+    types:
+      - 'opened'
+      - 'reopened'
+  issue_comment:
+    types:
+      - 'created'
+
+defaults:
+  run:
+    shell: 'bash'
+
+jobs:
+  debugger:
+    if: |-
+      ${{ fromJSON(vars.DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}
+    runs-on: 'ubuntu-latest'
+    permissions:
+      contents: 'read'
+    steps:
+      - name: 'Print context for debugging'
+        env:
+          DEBUG_event_name: '${{ github.event_name }}'
+          DEBUG_event__action: '${{ github.event.action }}'
+          DEBUG_event__comment__author_association: '${{ github.event.comment.author_association }}'
+          DEBUG_event__issue__author_association: '${{ github.event.issue.author_association }}'
+          DEBUG_event__pull_request__author_association: '${{ github.event.pull_request.author_association }}'
+          DEBUG_event__review__author_association: '${{ github.event.review.author_association }}'
+          DEBUG_event: '${{ toJSON(github.event) }}'
+        run: |-
+          env | grep '^DEBUG_'
+
+  dispatch:
+    # Para PRs: apenas se não for de um fork
+    # Para comentários: apenas se usuário digitar /gemini e for OWNER/MEMBER/COLLABORATOR
+    if: |-
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.fork == false
+      ) || (
+        github.event.sender.type == 'User' &&
+        startsWith(github.event.comment.body || github.event.review.body, '/gemini') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association)
+      )
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 5
+    permissions:
+      contents: 'read'
+      issues: 'write'
+      pull-requests: 'write'
+    outputs:
+      command: '${{ steps.extract_command.outputs.command }}'
+      request: '${{ steps.extract_command.outputs.request }}'
+      additional_context: '${{ steps.extract_command.outputs.additional_context }}'
+      issue_number: '${{ github.event.pull_request.number || github.event.issue.number }}'
+    steps:
+      - name: 'Generate GitHub App Token'
+        id: 'generate_token'
+        uses: 'actions/create-github-app-token@v1'
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_PRIVATE_KEY }}
+          owner: 'PageCloudv1'
+          repositories: 'xcloud-cli'
+
+      - name: 'Extract command'
+        id: 'extract_command'
+        uses: 'actions/github-script@v7'
+        env:
+          EVENT_TYPE: '${{ github.event_name }}.${{ github.event.action }}'
+          COMMENT_BODY: '${{ github.event.comment.body || github.event.review.body }}'
+        with:
+          github-token: '${{ steps.generate_token.outputs.token }}'
+          script: |
+            const eventType = process.env.EVENT_TYPE;
+            const commentBody = process.env.COMMENT_BODY || '';
+            
+            console.log(`Event: ${eventType}`);
+            console.log(`Comment: ${commentBody}`);
+            
+            let command = 'fallthrough';
+            let request = '';
+            let additionalContext = '';
+            
+            // Auto-review para PRs abertos (não-fork)
+            if (eventType === 'pull_request.opened') {
+              command = 'review';
+              request = 'Análise completa do PR';
+              additionalContext = 'Auto-review para PR recém-aberto';
+            }
+            // Comandos via comentário
+            else if (commentBody.startsWith('/gemini')) {
+              const match = commentBody.match(/^\/gemini\s+(\w+)(?:\s+(.+))?$/s);
+              if (match) {
+                command = match[1];
+                request = match[2] || '';
+                additionalContext = `Comando via comentário: ${command}`;
+              }
+            }
+            
+            core.setOutput('command', command);
+            core.setOutput('request', request);
+            core.setOutput('additional_context', additionalContext);
+            
+            console.log(`Extracted - Command: ${command}, Request: ${request}`);
+
+      - name: 'Send initial response'
+        if: steps.extract_command.outputs.command != 'fallthrough'
+        env:
+          GITHUB_TOKEN: '${{ steps.generate_token.outputs.token }}'
+          ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
+          MESSAGE: |-
+            🤖 Olá @${{ github.actor }}, recebi seu pedido e estou trabalhando nisso agora! Você pode acompanhar o progresso [nos logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          REPOSITORY: '${{ github.repository }}'
+        run: |-
+          gh issue comment "${ISSUE_NUMBER}" \
+            --body "${MESSAGE}" \
+            --repo "${REPOSITORY}"
+
+  review:
+    needs: 'dispatch'
+    if: |-
+      ${{ needs.dispatch.outputs.command == 'review' }}
+    uses: './.github/workflows/gemini-pr-review.yml'
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+      issues: 'write'
+      pull-requests: 'write'
+    with:
+      additional_context: '${{ needs.dispatch.outputs.additional_context }}'
+    secrets: 'inherit'
+
+  fallthrough:
+    needs:
+      - 'dispatch'
+      - 'review'
+    if: |-
+      ${{ always() && !cancelled() && (failure() || needs.dispatch.outputs.command == 'fallthrough') }}
+    runs-on: 'ubuntu-latest'
+    permissions:
+      contents: 'read'
+      issues: 'write'
+      pull-requests: 'write'
+    steps:
+      - name: 'Generate GitHub App Token'
+        id: 'generate_token'
+        uses: 'actions/create-github-app-token@v1'
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_PRIVATE_KEY }}
+          owner: 'PageCloudv1'
+          repositories: 'xcloud-cli'
+
+      - name: 'Send failure comment'
+        env:
+          GITHUB_TOKEN: '${{ steps.generate_token.outputs.token }}'
+          ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
+          MESSAGE: |-
+            🤖 Desculpe @${{ github.actor }}, não consegui processar seu pedido. Verifique se o comando está correto ou tente novamente.
+            
+            **Comandos disponíveis:**
+            - `/gemini review` - Análise de código/PR
+            
+            Para mais detalhes, veja os [logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          REPOSITORY: '${{ github.repository }}'
+        run: |-
+          gh issue comment "${ISSUE_NUMBER}" \
+            --body "${MESSAGE}" \
+            --repo "${REPOSITORY}"
