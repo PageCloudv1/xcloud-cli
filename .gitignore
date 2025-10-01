@@ -126,3 +126,9 @@ __pycache__/
 # Gemini AI
 .gemini/
 gha-creds-*.json
+
+# Go build artifacts
+xcloud
+xcloud-*
+*.exe
+coverage.out
