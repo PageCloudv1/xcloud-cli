@@ -18,7 +18,7 @@ func TestRootCommand(t *testing.T) {
 
 func TestCommands(t *testing.T) {
 	commands := []string{"version", "deploy", "status", "logs"}
-	
+
 	for _, cmdName := range commands {
 		found := false
 		for _, cmd := range rootCmd.Commands() {

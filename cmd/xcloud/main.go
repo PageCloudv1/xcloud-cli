@@ -67,20 +67,20 @@ var logsCmd = &cobra.Command{
 
 func init() {
 	cobra.OnInitialize(initConfig)
-	
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(logsCmd)
-	
+
 	// Flags globais
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "arquivo de configuração (default: $HOME/.xcloud.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "saída detalhada")
-	
+
 	// Deploy flags
 	deployCmd.Flags().StringP("env", "e", "production", "ambiente de destino")
 	deployCmd.Flags().BoolP("watch", "w", false, "observar mudanças e re-deploy automaticamente")
-	
+
 	// Logs flags
 	logsCmd.Flags().IntP("tail", "t", 100, "número de linhas para mostrar")
 	logsCmd.Flags().BoolP("follow", "f", false, "seguir logs em tempo real")
