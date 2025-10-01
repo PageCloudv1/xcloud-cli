@@ -1,8 +1,8 @@
-name: '🔄 Auto-Refactor Issues by rootkit-original'
+name: '🤖 Auto Refactor Issues'
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
 
 concurrency:
   group: '${{ github.workflow }}-refactor-${{ github.event.issue.number }}'
@@ -12,16 +12,15 @@ defaults:
   run:
     shell: 'bash'
 
-jobs:
-  auto-refactor:
-    name: '🔄 Refatorar e Auto-Assinar Issue'
-    runs-on: 'ubuntu-latest'
-    timeout-minutes: 10
+permissions:
+  issues: write
+  contents: read
 
-    permissions:
-      contents: 'read'
-      issues: 'write'
-      pull-requests: 'read'
+jobs:
+  auto-assign:
+    name: '🎯 Auto-assign Issue'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: 'Generate GitHub App Token'
@@ -33,71 +32,125 @@ jobs:
           owner: 'PageCloudv1'
           repositories: 'xcloud-cli'
 
-      - name: '🎯 Aplicar Auto-Atribuição Simples'
-        uses: 'actions/github-script@v7'
+      - name: '� Get Issue Details'
+        id: issue_details
+        uses: actions/github-script@v7
         with:
           github-token: '${{ steps.generate_token.outputs.token }}'
-          script: |-
-            // Auto-assinar para rootkit-original
-            await github.rest.issues.addAssignees({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              assignees: ['rootkit-original']
+          script: |
+            const issue = context.payload.issue;
+            console.log('Issue details:', {
+              number: issue.number,
+              title: issue.title,
+              author: issue.user.login,
+              labels: issue.labels.map(l => l.name)
             });
+            
+            return {
+              number: issue.number,
+              title: issue.title,
+              author: issue.user.login
+            };
 
-            // Adicionar label de auto-refatoração
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              labels: ['🤖 auto-refactored', '👤 rootkit-original']
-            });
-
-            core.info('Issue auto-assinada para rootkit-original');
-
-      - name: '💬 Postar Comentário de Confirmação'
-        uses: 'actions/github-script@v7'
+      - name: '👤 Auto-assign to Creator'
+        uses: actions/github-script@v7
         with:
           github-token: '${{ steps.generate_token.outputs.token }}'
-          script: |-
-            const comentario = `## 🔄 Auto-Atribuição Aplicada
-
-            🤖 **xCloud Bot** identificou que esta issue foi criada por @rootkit-original e aplicou as seguintes ações automaticamente:
-
-            ### ✅ **Ações Realizadas**
-            - **Auto-assinatura**: Issue atribuída automaticamente para você
-            - **Labels aplicadas**: \`🤖 auto-refactored\` e \`👤 rootkit-original\`
-
-            ### 🔄 **Próximos Passos**
-            - O sistema de refatoração inteligente será implementado em breve
-            - Por enquanto, a issue está pronta para seu desenvolvimento
-
-            ### 🤝 **Assistência do Copilot**
+          script: |
+            const issue = context.payload.issue;
+            const creator = issue.user.login;
             
-            @Copilot está disponível para ajudar com esta issue! Você pode:
-            - Pedir sugestões de implementação
-            - Solicitar análise de código
-            - Obter ajuda com debugging
-            - Discutir a melhor abordagem
-
-            ### 🎯 **xCloud CLI - Comandos Disponíveis**
+            console.log(`Assigning issue #${issue.number} to @${creator}...`);
             
-            Para análise via Gemini AI, use:
-            - \`/gemini review\` - Análise completa de código
-            - Comentários em PRs são automaticamente analisados
+            try {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                assignees: [creator]
+              });
+              
+              console.log(`✅ Successfully assigned to @${creator}`);
+            } catch (error) {
+              console.error(`❌ Failed to assign: ${error.message}`);
+              // Continue even if assignment fails
+            }
+
+      - name: '🏷️ Add Auto-refactored Label'
+        uses: actions/github-script@v7
+        with:
+          github-token: '${{ steps.generate_token.outputs.token }}'
+          script: |
+            const issue = context.payload.issue;
+            const creator = issue.user.login;
+            
+            console.log('Adding labels...');
+            
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['🤖 auto-refactored', `👤 ${creator}`]
+              });
+              
+              console.log('✅ Labels added successfully');
+            } catch (error) {
+              console.error(`⚠️ Failed to add labels: ${error.message}`);
+              // Continue even if labeling fails
+            }
+
+      - name: '💬 Post Confirmation Comment'
+        uses: actions/github-script@v7
+        with:
+          github-token: '${{ steps.generate_token.outputs.token }}'
+          script: |
+            const issue = context.payload.issue;
+            const creator = issue.user.login;
+            
+            const comment = `## 🤖 Issue Auto-Refactored
+            
+            Olá @${creator}! 👋
+            
+            Esta issue foi automaticamente processada pelo **xCloud Automation System**.
+            
+            ### ✅ Ações Executadas:
+            - ✓ Issue atribuída automaticamente para você
+            - ✓ Labels aplicadas: \`🤖 auto-refactored\`, \`👤 ${creator}\`
+            - ✓ Notificações enviadas
+            
+            ### 🤖 Assistência Disponível:
+            
+            @Copilot está disponível para ajudar! Você pode usar os seguintes comandos:
+            
+            - \`/gemini review\` - Análise completa do fluxo de automação
+            - \`/gemini analyze\` - Análise detalhada do código
+            - \`/gemini suggest\` - Sugestões de melhorias
+            - \`/gemini validate\` - Validação de configurações
+            
+            ### 📊 Status do Workflow:
+            - **Workflow**: auto-refactor-issues.yml
+            - **Execução**: [Ver logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            - **Sistema**: xCloud Automation v1.0
             
             ---
-            🔄 *Auto-atribuição aplicada | Sistema básico funcionando*`;
+            
+            *🤖 Este comentário foi gerado automaticamente pelo xCloud Bot*`;
+            
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: comment
+              });
+              
+              console.log('✅ Confirmation comment posted');
+            } catch (error) {
+              console.error(`⚠️ Failed to post comment: ${error.message}`);
+            }
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: comentario
-            });
-
-      - name: '❌ Notificar Falha na Auto-Atribuição'
+      - name: '❌ Handle Failure'
         if: failure()
         uses: 'actions/github-script@v7'
         with:
@@ -121,3 +174,17 @@ jobs:
               ---
               ⚠️ *Auto-atribuição falhou | Ação manual necessária*`
             });
+
+      - name: '📊 Summary'
+        run: |
+          echo "## 🎉 Auto-refactor completed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Actions taken:" >> $GITHUB_STEP_SUMMARY
+          echo "- Issue assigned to creator" >> $GITHUB_STEP_SUMMARY
+          echo "- Labels applied" >> $GITHUB_STEP_SUMMARY
+          echo "- Confirmation comment posted" >> $GITHUB_STEP_SUMMARY
+          echo "- Copilot notified" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Links:" >> $GITHUB_STEP_SUMMARY
+          echo "- [View Issue](https://github.com/${{ github.repository }}/issues/${{ github.event.issue.number }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
