@@ -17,12 +17,12 @@ func TestRootCommand(t *testing.T) {
 }
 
 func TestCommands(t *testing.T) {
-	commands := []string{"version", "deploy", "status", "logs"}
-	
+	commands := []string{"version", "deploy", "status", "logs", "init", "create"}
+
 	for _, cmdName := range commands {
 		found := false
 		for _, cmd := range rootCmd.Commands() {
-			if cmd.Use == cmdName {
+			if cmd.Use == cmdName || cmd.Use == cmdName+" [nome-do-projeto]" || cmd.Use == cmdName+" [tipo] [nome]" {
 				found = true
 				break
 			}
