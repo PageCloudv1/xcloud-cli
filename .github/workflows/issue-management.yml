@@ -51,7 +51,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: '🤖 Processar Issue com Gemini + GitHub MCP'
+      - name: '🤖 Processar Issue com Gemini + GitHub CLI'
         uses: 'google-github-actions/run-gemini-cli@v0.1.12'  # Pinned version for security
         env:
           TITLE: '${{ github.event.issue.title }}'

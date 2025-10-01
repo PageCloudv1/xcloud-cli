@@ -46,7 +46,7 @@ jobs:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_PRIVATE_KEY }}
           owner: 'PageCloudv1'
-          repositories: 'xcloud-bot'
+          repositories: 'xcloud-cli'
       
       # Step 2: Hardening de segurança do runner
       - name: '🛡️ Harden Runner'

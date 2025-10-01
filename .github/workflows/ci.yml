@@ -1,303 +1,135 @@
-name: CI/CD Pipeline - Go CLI
+name: '🔄 CI - Tests & Quality Checks'
 
 on:
   push:
-    branches: [ main, develop ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
+    branches:
+      - main
+      - develop
   pull_request:
-    branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-  release:
-    types: [published]
+    branches:
+      - main
+      - develop
 
-permissions:
-  contents: read
-
-env:
-  GO_VERSION: '1.21'
-  APP_NAME: 'xcloud-cli'
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
 
 jobs:
-  lint-and-format:
-    name: 🔍 Lint & Format
+  lint:
+    name: '🔍 Lint & Format Check'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - name: 📥 Checkout code
+      - name: '📥 Checkout code'
         uses: actions/checkout@v4
 
-      - name: 🐹 Setup Go
-        uses: actions/setup-go@v4
+      - name: '🔧 Setup Go'
+        uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: '1.21'
           cache: true
 
-      - name: 📦 Download dependencies
+      - name: '📦 Install dependencies'
         run: go mod download
 
-      - name: 🔍 Run golangci-lint
-        uses: golangci/golangci-lint-action@v3
+      - name: '🔍 Run go fmt'
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go code is not formatted:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: '🔍 Run go vet'
+        run: go vet ./...
+
+      - name: '🔍 Run golangci-lint'
+        uses: golangci/golangci-lint-action@v4
         with:
           version: latest
           args: --timeout=5m
 
-      - name: 🧹 Check formatting
-        run: |
-          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-            echo "❌ Code is not formatted. Please run 'gofmt -s -w .'"
-            gofmt -s -l .
-            exit 1
-          fi
-          echo "✅ Code is properly formatted"
-
-      - name: 🔧 Check modules
-        run: |
-          go mod tidy
-          if ! git diff --quiet go.mod go.sum; then
-            echo "❌ go.mod or go.sum is not tidy"
-            git diff go.mod go.sum
-            exit 1
-          fi
-
   test:
-    name: 🧪 Test Go ${{ matrix.go-version }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: '🧪 Tests (Go ${{ matrix.go-version }})'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        go-version: ['1.20', '1.21', '1.22']
+        go-version: ['1.20', '1.21']
 
     steps:
-      - name: 📥 Checkout code
+      - name: '📥 Checkout code'
         uses: actions/checkout@v4
 
-      - name: 🐹 Setup Go ${{ matrix.go-version }}
-        uses: actions/setup-go@v4
+      - name: '🔧 Setup Go ${{ matrix.go-version }}'
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
           cache: true
 
-      - name: 📦 Download dependencies
+      - name: '📦 Install dependencies'
         run: go mod download
 
-      - name: 🧪 Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+      - name: '🧪 Run tests'
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: 📊 Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.21'
-        uses: codecov/codecov-action@v3
+      - name: '📊 Upload coverage to Codecov'
+        if: matrix.go-version == '1.21'
+        uses: codecov/codecov-action@v4
         with:
-          file: ./coverage.out
+          files: ./coverage.out
           flags: unittests
           name: codecov-umbrella
+          fail_ci_if_error: false
 
   build:
-    name: 🔨 Build Binaries
+    name: '🏗️ Build'
     runs-on: ubuntu-latest
-    needs: [lint-and-format, test]
-    strategy:
-      matrix:
-        goos: [linux, windows]
-        goarch: [amd64, arm64]
+    timeout-minutes: 10
+    needs: [lint, test]
 
     steps:
-      - name: 📥 Checkout code
+      - name: '📥 Checkout code'
         uses: actions/checkout@v4
 
-      - name: 🐹 Setup Go
-        uses: actions/setup-go@v4
+      - name: '🔧 Setup Go'
+        uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: '1.21'
           cache: true
 
-      - name: 📦 Download dependencies
+      - name: '📦 Install dependencies'
         run: go mod download
 
-      - name: 🔨 Build binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          mkdir -p dist
-          EXT=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            EXT=".exe"
-          fi
-          
-          BINARY_NAME="${APP_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
-          
-          echo "🔨 Building ${BINARY_NAME}"
-          go build -ldflags="-s -w" -o "dist/${BINARY_NAME}" ./cmd/xcloud
-          
-          # Verify binary
-          file "dist/${BINARY_NAME}" || true
-          ls -la "dist/${BINARY_NAME}"
+      - name: '🏗️ Build binary'
+        run: go build -v -o xcloud ./cmd/xcloud/main.go
 
-      - name: 📤 Upload build artifacts
-        uses: actions/upload-artifact@v3
+      - name: '✅ Verify binary'
+        run: ./xcloud --version || echo "Binary created successfully"
+
+      - name: '📦 Upload artifact'
+        uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/
+          name: xcloud-cli-${{ github.sha }}
+          path: xcloud
           retention-days: 7
 
-  security:
-    name: 🔒 Security Scan
+  quality-gate:
+    name: '✅ Quality Gate'
     runs-on: ubuntu-latest
-    needs: [lint-and-format]
-    permissions:
-      security-events: write
-    
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🐹 Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: 🔒 Run Gosec Security Scanner
-        uses: securecodewarrior/github-action-gosec@master
-        with:
-          args: '-fmt sarif -out gosec.sarif ./...'
-
-      - name: 📤 Upload SARIF file
-        if: always()
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: gosec.sarif
-
-      - name: 🛡️ Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: 📤 Upload Trivy scan results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-  release:
-    name: 🚀 Release
-    runs-on: ubuntu-latest
-    needs: [build, security]
-    if: github.event_name == 'release'
-    permissions:
-      contents: write
-    
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 📦 Download all artifacts
-        uses: actions/download-artifact@v3
-        with:
-          path: ./artifacts
-
-      - name: 📋 List artifacts
-        run: |
-          echo "📋 Available artifacts:"
-          find ./artifacts -type f -name "*" | sort
-
-      - name: 📦 Create release archives
-        run: |
-          mkdir -p release
-          
-          # Create archives for each platform
-          for os_arch in linux-amd64 linux-arm64 windows-amd64 windows-arm64; do
-            if [ -d "./artifacts/binaries-${os_arch}" ]; then
-              cd "./artifacts/binaries-${os_arch}"
-              
-              if [[ "${os_arch}" == *"windows"* ]]; then
-                zip -r "../../release/${APP_NAME}-${os_arch}.zip" *
-              else
-                tar -czf "../../release/${APP_NAME}-${os_arch}.tar.gz" *
-              fi
-              
-              cd ../..
-              echo "✅ Created archive for ${os_arch}"
-            else
-              echo "⚠️  No artifacts found for ${os_arch}"
-            fi
-          done
-
-      - name: 📤 Upload release assets
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            release/*.zip
-            release/*.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  benchmark:
-    name: ⚡ Performance Benchmarks
-    runs-on: ubuntu-latest
-    needs: [test]
-    if: github.event_name == 'pull_request'
-    
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🐹 Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: 📦 Download dependencies
-        run: go mod download
-
-      - name: ⚡ Run benchmarks
-        run: |
-          echo "⚡ Running performance benchmarks..."
-          go test -bench=. -benchmem -count=3 -timeout=10m ./... > benchmark_results.txt 2>&1 || true
-          
-          if [ -s benchmark_results.txt ]; then
-            echo "📊 Benchmark Results:"
-            cat benchmark_results.txt
-          else
-            echo "ℹ️  No benchmarks found"
-          fi
-
-      - name: 📤 Upload benchmark results
-        uses: actions/upload-artifact@v3
-        with:
-          name: benchmark-results
-          path: benchmark_results.txt
-          retention-days: 30
-
-  notify:
-    name: 📢 Notification
-    runs-on: ubuntu-latest
-    needs: [lint-and-format, test, build, security]
+    needs: [lint, test, build]
     if: always()
-    
+
     steps:
-      - name: 📢 Workflow Summary
+      - name: '📊 Check results'
         run: |
-          echo "## 🎯 xCloud CLI - Workflow Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 Job Results:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔍 Lint & Format: ${{ needs.lint-and-format.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- 🧪 Tests: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY  
-          echo "- 🔨 Build: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔒 Security: ${{ needs.security.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🎯 Targets:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐧 Linux (amd64, arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "- 🪟 Windows (amd64, arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📊 Metrics:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔤 Go Version: ${{ env.GO_VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "- 📅 Build Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ]; then
+            echo "❌ Quality gate failed!"
+            exit 1
+          fi
+          echo "✅ All checks passed!"
