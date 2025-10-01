@@ -65,25 +65,86 @@ var logsCmd = &cobra.Command{
 	},
 }
 
+var initCmd = &cobra.Command{
+	Use:   "init [nome-do-projeto]",
+	Short: "Inicializa um novo projeto xCloud",
+	Long:  "Cria a estrutura básica de um novo projeto xCloud com templates e configurações",
+	Args:  cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		projectName := "my-xcloud-project"
+		if len(args) > 0 {
+			projectName = args[0]
+		}
+
+		template, _ := cmd.Flags().GetString("template")
+
+		fmt.Printf("🚀 Inicializando projeto xCloud: %s\n", projectName)
+		if verbose {
+			fmt.Printf("📦 Template selecionado: %s\n", template)
+		}
+
+		// TODO: Implementar lógica de inicialização completa
+		fmt.Println("✅ Projeto inicializado com sucesso!")
+	},
+}
+
+var createCmd = &cobra.Command{
+	Use:       "create [tipo] [nome]",
+	Short:     "Cria recursos na xCloud",
+	Long:      "Cria novos recursos como funções serverless, APIs, serviços e componentes na plataforma xCloud",
+	Args:      cobra.MinimumNArgs(1),
+	ValidArgs: []string{"function", "api", "service", "component"},
+	Run: func(cmd *cobra.Command, args []string) {
+		resourceType := args[0]
+		resourceName := ""
+		if len(args) > 1 {
+			resourceName = args[1]
+		} else {
+			resourceName = "my-" + resourceType
+		}
+
+		template, _ := cmd.Flags().GetString("template")
+		runtime, _ := cmd.Flags().GetString("runtime")
+
+		fmt.Printf("✨ Criando %s: %s\n", resourceType, resourceName)
+		if verbose {
+			fmt.Printf("📦 Template: %s\n", template)
+			fmt.Printf("⚙️  Runtime: %s\n", runtime)
+		}
+
+		// TODO: Implementar lógica de criação de recursos
+		fmt.Println("✅ Recurso criado com sucesso!")
+	},
+}
+
 func init() {
 	cobra.OnInitialize(initConfig)
-	
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(logsCmd)
-	
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(createCmd)
+
 	// Flags globais
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "arquivo de configuração (default: $HOME/.xcloud.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "saída detalhada")
-	
+
 	// Deploy flags
 	deployCmd.Flags().StringP("env", "e", "production", "ambiente de destino")
 	deployCmd.Flags().BoolP("watch", "w", false, "observar mudanças e re-deploy automaticamente")
-	
+
 	// Logs flags
 	logsCmd.Flags().IntP("tail", "t", 100, "número de linhas para mostrar")
 	logsCmd.Flags().BoolP("follow", "f", false, "seguir logs em tempo real")
+
+	// Init flags
+	initCmd.Flags().StringP("template", "t", "basic", "template do projeto (basic, serverless, api)")
+
+	// Create flags
+	createCmd.Flags().StringP("template", "t", "default", "template do recurso")
+	createCmd.Flags().StringP("runtime", "r", "nodejs", "runtime para funções (nodejs, python, go)")
 }
 
 var cfgFile string
